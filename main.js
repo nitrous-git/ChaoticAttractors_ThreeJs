@@ -1,653 +1,318 @@
-import * as THREE from "three";
-import GUI from "lil-gui";
+import * as THREE from 'three';
+import GUI from 'lil-gui';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { ATTRACTORS } from './src/attractors.js';
+import { vertex, fragment, finishShader } from './src/shaders.js';
 
-// Basic three.js setup
-// ------------------------------------------------------------
-const w = window.innerWidth;
-const h = window.innerHeight;
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
-
-const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
-camera.position.set(0, 45, 80);
-camera.lookAt(0, 0, 0);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(w, h);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-document.body.appendChild(renderer.domElement);
-
-// axis helper
-//scene.add(new THREE.AxesHelper(20));
-
-// RK4 integrator
-// ------------------------------------------------------------
-
-function RK4(fun, dt, t0, y0) {
-    const c1 = fun(t0, y0);
-
-    const y_c2 = [y0[0] + (dt / 2) * c1[0],
-                        y0[1] + (dt / 2) * c1[1],
-                        y0[2] + (dt / 2) * c1[2]];
-    const c2 = fun(t0 + dt / 2, y_c2);
-
-    const y_c3 = [y0[0] + (dt / 2) * c2[0],
-                        y0[1] + (dt / 2) * c2[1],
-                        y0[2] + (dt / 2) * c2[2]];
-    const c3 = fun(t0 + dt / 2, y_c3);
-
-    const y_c4 = [y0[0] + dt * c3[0],
-                        y0[1] + dt * c3[1],
-                        y0[2] + dt * c3[2]];
-    const c4 = fun(t0 + dt, y_c4);
-
-    return [y0[0] + (dt / 6) * (c1[0] + 2 * c2[0] + 2 * c3[0] + c4[0]),
-            y0[1] + (dt / 6) * (c1[1] + 2 * c2[1] + 2 * c3[1] + c4[1]),
-            y0[2] + (dt / 6) * (c1[2] + 2 * c2[2] + 2 * c3[2] + c4[2])];
-}
-
-// Attractor presets
-// ------------------------------------------------------------
-
-const ATTRACTORS = {
-    Aizawa: {
-        name: "Aizawa",
-        initial: [0.1, 0.0, 0.0],
-        dt: 0.01,
-        T: 600,
-        scale: 3,
-        maxPointsPerFrame : 13,
-
-        cameraPosition: [0, 3, 10],
-        cameraLookAt: [0, 2, 0],
-
-        ode: function aizawa(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 0.95;
-            const b = 0.7;
-            const c = 0.6;
-            const d = 3.5;
-            const e = 0.25;
-            const f = 0.1;
-
-            const dx = (z - b) * x - d * y;
-            const dy = d * x + (z - b) * y;
-            const dz =
-                c +
-                a * z -
-                (z ** 3) / 3 -
-                (x ** 2 + y ** 2) * (1 + e * z) +
-                f * z * (x ** 3);
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Lorenz: {
-        name: "Lorenz",
-        initial: [-8, 8, 27],
-        dt: 0.001,
-        T: 200,
-        scale: 1.8,
-        maxPointsPerFrame : 50,
-
-        cameraPosition: [0, 45, 80],
-        cameraLookAt: [0, 45, 0],
-
-        ode: function lorenz(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 10;
-            const b = 8 / 3;
-            const c = 28;
-
-            const dx = a * (y - x);
-            const dy = x * (c - z) - y;
-            const dz = x * y - b * z;
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Rossler: {
-        name: "Rossler",
-        initial: [0.1, 0.0, 0.0],
-        dt: 0.01,
-        T: 1000,
-        scale: 1.6,
-        maxPointsPerFrame : 35,
-
-        cameraPosition: [0, 15, 45],
-        cameraLookAt: [0, 8, 0],
-
-        ode: function rossler(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 0.2;
-            const b = 0.2;
-            const c = 5.7;
-
-            const dx = -y - z;
-            const dy = x + a * y;
-            const dz = b + z * (x - c);
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Thomas: {
-        label: "Thomas",
-        initial: [1.0, 0.0, -1.0],
-        dt: 0.01,
-        T: 1800,
-        scale: 12.0,
-        maxPointsPerFrame : 35,
-
-        cameraPosition: [45, 45, 45],
-        cameraLookAt: [0, 0, 0],
-
-        ode: function thomas(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const b = 0.208186;
-
-            const dx = Math.sin(y) - b * x;
-            const dy = Math.sin(z) - b * y;
-            const dz = Math.sin(x) - b * z;
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Halvorsen: {
-        label: "Halvorsen",
-        initial: [0.1, 0.0, 0.0],
-        dt: 0.005,
-        T: 250,
-        scale: 5.0,
-        maxPointsPerFrame : 25,
-
-        cameraPosition: [45, 45, 45],
-        cameraLookAt: [0, 0, 0],
-
-        ode: function halvorsen(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 1.4;
-
-            const dx = -a * x - 4 * y - 4 * z - y * y;
-            const dy = -a * y - 4 * z - 4 * x - z * z;
-            const dz = -a * z - 4 * x - 4 * y - x * x;
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Dadras: {
-        label: "Dadras",
-        initial: [1.0, 1.0, 1.0],
-        dt: 0.005,
-        T: 900,
-        scale: 2.0,
-        maxPointsPerFrame : 30,
-
-        cameraPosition: [60, 45, 25],
-        cameraLookAt: [2, 5, 0],
-
-        ode: function dadras(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 2.6;
-            const b = 2.7;
-            const c = 2.8;
-            const d = 3.0;
-            const e = 7.4;
-
-            const dx = y - a * x + b * y * z;
-            const dy = c * y - x * z + z;
-            const dz = d * x * y - e * z;
-
-            return [dx, dy, dz];
-        },
-    },
-
-    Misc_01: {
-        name: "Misc_01",
-        initial: [1.0, 0.0, 0.0],
-        dt: 0.01,
-        T: 300,
-        scale: 3,
-        maxPointsPerFrame : 30,
-
-        cameraPosition: [0, 0, 5],
-        cameraLookAt: [0, 0, 0],
-
-        ode: function misc01(t, state) {
-            const x = state[0];
-            const y = state[1];
-            const z = state[2];
-
-            const a = 0.01;   // 0.001 0.01, 0.4 are pretty cool !!
-
-            const dx = y + z;
-            const dy = -x + a*y;
-            const dz = x**2 - z;
-
-            return [dx, dy, dz];
-        },
-    },
-
-};
-
-// UI / runtime settings
-// ------------------------------------------------------------
-
+const $ = id => document.getElementById(id);
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
-    attractor: "Aizawa",
-
-    x0: 0.1,
-    y0: 0.0,
-    z0: 0.0,
-
-    dt: 0.01,
-    T: 600,
-    scale: 3,
-
-    pointsPerSecond: 3.0,
-    maxPointsPerFrame : 3.0,
-
-    trail: 0.7,
-    band: 0.005,
-    intensity: 1.8,
-
-    restart: function () {
-        restartSimulation();
-    }
+    attractor:'Aizawa', ...presetValues('Aizawa'), mode:'Hybrid', palette:'Glacier', colorBy:'Time',
+    speed:1, trail:1, intensity:0.7, pointSize:2.1, cloudOpacity:0.24,
+    headSize:0.11, wakeWidth:2.2, headGlow:2.5, bloom:true, bloomStrength:0.65,
+    bloomRadius:0.45, bloomThreshold:0.85, exposure:1, vignette:0.3,
+    quality:'High', autoRotate:false, rotationSpeed:0.3, loop:false, paused:reducedMotion,
+    flowTracers:true, tracerCount:24, axes:false
 };
-
-
-// Geometry and trajectory state
-// -----------------------------------------------------------
-let trajectory_points = [];
-let drawCount = 2;
-let revealStartTime = performance.now();
-
-const geom = new THREE.BufferGeometry();
-geom.setDrawRange(0, 2);
-
-// Shader
-// ------------------------------------------------------------
-
+function presetValues(name) {
+    const d = ATTRACTORS[name];
+    return {x0:d.initial[0],y0:d.initial[1],z0:d.initial[2],dt:d.dt,T:d.T,scale:d.scale};
+}
+const paletteColors = {
+    Glacier:['#317bbf','#78ddd0','#f6dfba'], Ember:['#893fa8','#f7753c','#ffe6b2'],
+    Synthwave:['#4949e8','#ce5ee4','#67e5f1'], Aurora:['#4976dc','#65d7a3','#dbf4bc'],
+    Porcelain:['#536575','#b3cacd','#ffffff']
+};
+const descriptions = {
+    Aizawa:['A toroidal flow with a folded core.','ẋ = (z − b)x − dy<br>ẏ = dx + (z − b)y<br>ż = c + az − z³/3 − (x² + y²)(1 + ez) + fzx³'],
+    Lorenz:['Two wings. One restless trajectory.','ẋ = σ(y − x)<br>ẏ = x(ρ − z) − y<br>ż = xy − βz'],
+    Rossler:['A spiral that folds back into itself.','ẋ = −y − z<br>ẏ = x + ay<br>ż = b + z(x − c)'],
+    Thomas:['Cyclic symmetry in three dimensions.','ẋ = sin(y) − bx<br>ẏ = sin(z) − by<br>ż = sin(x) − bz'],
+    Halvorsen:['Three folds in a cyclic quadratic flow.','ẋ = −ax − 4y − 4z − y²<br>ẏ = −ay − 4z − 4x − z²<br>ż = −az − 4x − 4y − x²'],
+    Dadras:['A five-parameter quadratic system.','ẋ = y − ax + byz<br>ẏ = cy − xz + z<br>ż = dxy − ez'],
+    Misc_01:['Your original experimental system.','ẋ = y + z<br>ẏ = −x + ay<br>ż = x² − z']
+};
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#050608');
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 2000);
+const renderer = new THREE.WebGLRenderer({canvas:$('webgl-canvas'),antialias:false,powerPreference:'high-performance'});
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const controls = new OrbitControls(camera,renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1,1),settings.bloomStrength,settings.bloomRadius,settings.bloomThreshold);
+composer.addPass(bloom);
+const finish = new ShaderPass(finishShader);
+composer.addPass(finish);
+composer.addPass(new OutputPass());
+const fxaa = new ShaderPass(FXAAShader);
+composer.addPass(fxaa);
 const uniforms = {
-    u_headT: { value: 0.0 },      // where the currently drawn head is (0..1)
-    u_band:  { value: 0.005 },     // glowing segment length (0.001 to 0.005 is good)
-    u_glow:  { value: new THREE.Color(0xffffff) },
-    u_intensity: { value: 1.8 }, // glow strength
-    u_trail: { value: 1.0 }, // keep last 70% visible
-    u_paletteShift: { value: 0.0 }
+    uHead:{value:0},uTrail:{value:1},uBand:{value:0.003},uIntensity:{value:0.7},
+    uColorA:{value:new THREE.Color()},uColorB:{value:new THREE.Color()},uColorC:{value:new THREE.Color()},
+    uColorMode:{value:0},uPointSize:{value:2},uPixelRatio:{value:1},uClock:{value:0},uOpacity:{value:0.65}
 };
+const baseMaterial = new THREE.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:fragment,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+const pointUniforms = {...uniforms,uOpacity:{value:settings.cloudOpacity}};
+const cloudMaterial = new THREE.ShaderMaterial({uniforms:pointUniforms,vertexShader:vertex,fragmentShader:fragment,
+    defines:{CLOUD:1},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+let geometry = new THREE.BufferGeometry();
+const line = new THREE.Line(geometry,baseMaterial);
+const cloud = new THREE.Points(geometry,cloudMaterial);
+scene.add(line,cloud);
 
-const vert = `
-  attribute float a_t;
-  varying float v_t;
+// A short screen-space ribbon, independent of platform GL line-width limits.
+const WAKE_SAMPLES=180;
+const wakeGeometry=new LineGeometry();
+wakeGeometry.setPositions(new Float32Array(WAKE_SAMPLES*3));
+wakeGeometry.setColors(new Float32Array(WAKE_SAMPLES*3));
+const wakeMaterial=new LineMaterial({linewidth:settings.wakeWidth,vertexColors:true,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+const wake=new Line2(wakeGeometry,wakeMaterial);
+wake.frustumCulled=false;
+scene.add(wake);
+const glowCanvas=document.createElement('canvas');glowCanvas.width=glowCanvas.height=128;
+const ctx=glowCanvas.getContext('2d');
+const gradient=ctx.createRadialGradient(64,64,0,64,64,64);
+gradient.addColorStop(0,'rgba(255,255,255,1)');gradient.addColorStop(.12,'rgba(220,252,255,1)');
+gradient.addColorStop(.3,'rgba(129,216,255,.3)');gradient.addColorStop(1,'rgba(129,216,255,0)');
+ctx.fillStyle=gradient;ctx.fillRect(0,0,128,128);
+const glowTexture=new THREE.CanvasTexture(glowCanvas);
+const head=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture,color:new THREE.Color(2,3,3.5),
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+scene.add(head);
+const tracerGeometry=new THREE.BufferGeometry();
+const tracerPositions=new Float32Array(96*3);
+const tracerColors=new Float32Array(96*3);
+tracerGeometry.setAttribute('color',new THREE.BufferAttribute(tracerColors,3).setUsage(THREE.DynamicDrawUsage));
+tracerGeometry.setAttribute('position',new THREE.BufferAttribute(tracerPositions,3).setUsage(THREE.DynamicDrawUsage));
+const tracers=new THREE.Points(tracerGeometry,new THREE.PointsMaterial({map:glowTexture,color:new THREE.Color(1.5,2.5,3),vertexColors:true,
+    size:1,sizeAttenuation:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+tracers.frustumCulled=false;scene.add(tracers);
+let axes=new THREE.AxesHelper(5);scene.add(axes);
+let result=null, progress=0.16, clock=0, lastTime=null, activeSettings=null;
+let requestId=0, worker=null, busy=false, fittedRadius=5, fpsFrames=0, fpsTime=0;
+let capturePending=false;
+let toastTimeout;
+function toast(message) { $('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>$('toast').classList.remove('visible'),4500); }
 
-  void main() {
-    v_t = a_t;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const frag = `
-  precision highp float;
-
-  uniform float u_headT;
-  uniform float u_band;
-  uniform vec3  u_glow;
-  uniform float u_intensity;
-  uniform float u_trail;
-  uniform float u_paletteShift;
-
-  varying float v_t;
-
-  // Inigo Quilez-style cosine palette
-  vec3 palette(float t) {
-      vec3 a = vec3(0.10, 0.08, 0.18);
-      vec3 b = vec3(0.90, 0.55, 0.35);
-      vec3 c = vec3(1.00, 1.00, 1.00);
-      vec3 d = vec3(0.00, 0.20, 0.40);
-      return a + b * cos(6.2831853 * (c * t + d));
-  }
-  
-  vec3 paletteSynthwave(float t) {
-      // Neon synthwave: magenta/purple/blue/cyan with high saturation
-      // Mix of 3 keyed ramps to avoid “muddy” midtones.
-      t = fract(t);
-    
-      vec3 magenta = vec3(1.00, 0.12, 0.78);
-      vec3 purple  = vec3(0.62, 0.18, 1.00);
-      vec3 blue    = vec3(0.10, 0.45, 1.00);
-      vec3 cyan    = vec3(0.00, 1.00, 0.95);
-    
-      // Segment blends (smooth, continuous)
-      float s0 = smoothstep(0.00, 0.35, t); // magenta -> purple
-      vec3 c0 = mix(magenta, purple, s0);
-    
-      float s1 = smoothstep(0.25, 0.65, t); // purple -> blue
-      vec3 c1 = mix(purple, blue, s1);
-    
-      float s2 = smoothstep(0.55, 1.00, t); // blue -> cyan
-      vec3 c2 = mix(blue, cyan, s2);
-    
-      // Combine ramps so we keep punchy neon throughout
-      vec3 col = (c0 + c1 + c2) / 3.0;
-    
-      // Add a subtle “neon lift” (push brights, keep blacks)
-      col = pow(col, vec3(0.85)); // slightly brighter mid/highs
-      return col;
-  }
-    
-  void main() {
-      // Base color changes along the line
-      float tcol = fract(v_t + u_paletteShift);
-      vec3 base = palette(tcol);
-    
-      // Head glow
-      float d = abs(v_t - u_headT);
-      float glow = exp(-(d*d) / max(1e-6, u_band*u_band));
-    
-      // Trail fade to black behind the head
-      float age  = u_headT - v_t;                  // 0 at head, increases behind it
-      float fade = smoothstep(u_trail, 0.0, age);  // 1 near head -> 0 far behind
-    
-      vec3 col = base * fade + u_glow * glow * u_intensity;
-      float alpha = max(fade, glow);
-    
-      gl_FragColor = vec4(col, alpha);
-  }
-`;
-
-const mat = new THREE.ShaderMaterial({
-    uniforms : uniforms,
-    vertexShader: vert,
-    fragmentShader: frag,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,  // helps additive glow layering
-});
-
-const line = new THREE.Line(geom, mat);
-scene.add(line);
-
-// Trajectory generation
-// ------------------------------------------------------------
-
-function computeTrajectory() {
-    const def = ATTRACTORS[settings.attractor];
-
-    const dt = settings.dt;
-    const T = settings.T;
-    const N = Math.floor(T / dt);
-    const scale = settings.scale;
-
-    let state = [settings.x0, settings.y0, settings.z0];
-    let t = 0;
-
-    trajectory_points = [];
-    trajectory_points.push( new THREE.Vector3(state[0], state[2], state[1]).multiplyScalar(scale) );
-
-    for (let i = 0; i < N; i++) {
-        state = RK4(def.ode, dt, t, state);
-        t += dt;
-
-        const p = new THREE.Vector3(state[0], state[2], state[1]).multiplyScalar(scale);
-        trajectory_points.push(p);
-    }
-
-    // Convert points to flat array Float32Array for BufferGeometry
-    // ------------------------------------------------------------
-    const positions = new Float32Array(trajectory_points.length * 3);
-    const tvals = new Float32Array(trajectory_points.length); // per vertex attribute, normalized to 0..1 along trajectory
-
-    for (let i = 0; i < trajectory_points .length; i++) {
-        const p = trajectory_points[i];
-        const index = i * 3;
-
-        positions[index + 0] = p.x;
-        positions[index + 1] = p.y;
-        positions[index + 2] = p.z;
-
-        tvals[i] = i / (trajectory_points.length - 1);
-    }
-
-    return {
-        positions: positions,
-        tvals: tvals,
+function rebuild(fit=true) {
+    const id=++requestId;
+    // Cancel superseded work instead of queueing multiple expensive integrations.
+    worker?.terminate();worker=new Worker(new URL('./src/trajectory.worker.js',import.meta.url),{type:'module'});
+    busy=true;document.body.classList.add('busy');
+    const snapshot={attractor:settings.attractor,...Object.fromEntries(['x0','y0','z0','dt','T','scale'].map(k=>[k,settings[k]]))};
+    worker.onmessage=({data})=>{
+        if(data.id!==requestId)return;
+        busy=false;document.body.classList.remove('busy');
+        if(data.error) { handleBuildError(data.error);return; }
+        activeSettings=snapshot;result=data.result;
+        const next=new THREE.BufferGeometry();
+        next.setAttribute('position',new THREE.BufferAttribute(result.positions,3));
+        next.setAttribute('a_t',new THREE.BufferAttribute(result.times,1));
+        next.setAttribute('a_speed',new THREE.BufferAttribute(result.speeds,1));
+        next.computeBoundingSphere();next.computeBoundingBox();
+        line.geometry=cloud.geometry=next;geometry.dispose();geometry=next;
+        progress=.16;clock=0;
+        if(fit)fitCamera();
+        updateSystemText();updateGui();
+        document.body.classList.add('ready');
     };
+    worker.onerror=e=>{busy=false;document.body.classList.remove('busy');handleBuildError(e.message||'Unable to build trajectory.');};
+    worker.postMessage({id,settings:snapshot});
 }
-
-function rebuildTrajectory() {
-    const result = computeTrajectory();
-
-    geom.setAttribute("position", new THREE.BufferAttribute(result.positions, 3));
-
-    geom.setAttribute("a_t", new THREE.BufferAttribute(result.tvals, 1));
-
-    geom.computeBoundingSphere();
-
-    drawCount = 2;
-    revealStartTime = performance.now();
-
-    geom.setDrawRange(0, drawCount);
-
-    uniforms.u_headT.value = 0.0;
+function handleBuildError(message){
+    toast(message);
+    if(activeSettings) {Object.assign(settings,activeSettings);updateGui();updateSystemText();}
+    else {$('startup-message').textContent=message;}
 }
-
-function restartSimulation() {
-    rebuildTrajectory();
+function fitCamera(){
+    if(!geometry.boundingSphere)return;
+    const sphere=geometry.boundingSphere;fittedRadius=Math.max(sphere.radius,.1);
+    const direction=new THREE.Vector3(...ATTRACTORS[settings.attractor].cameraPosition)
+        .sub(new THREE.Vector3(...ATTRACTORS[settings.attractor].cameraLookAt)).normalize();
+    const fov=Math.min(camera.fov*Math.PI/180,2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect));
+    const distance=fittedRadius/Math.sin(fov/2)*1.25;
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(direction,distance);
+    camera.near=Math.max(.001,fittedRadius/1000);camera.far=Math.max(2000,distance*20);camera.updateProjectionMatrix();
+    controls.minDistance=fittedRadius*.1;controls.maxDistance=distance*8;controls.update();
+    axes.scale.setScalar(fittedRadius/10);
 }
-
-
-// Preset helpers
-// ------------------------------------------------------------
-
-function applyPreset(name) {
-    const def = ATTRACTORS[name];
-
-    settings.attractor = name;
-
-    settings.x0 = def.initial[0];
-    settings.y0 = def.initial[1];
-    settings.z0 = def.initial[2];
-
-    settings.dt = def.dt;
-    settings.T = def.T;
-    settings.scale = def.scale;
-
-    applyCameraPreset(def);
-
-    rebuildTrajectory();
-    updateGuiDisplay();
+function updateSystemText(){
+    const name=settings.attractor;
+    $('system').value=name;$('model-name').textContent=name.toUpperCase();
+    $('system-description').textContent=descriptions[name][0];$('equations').innerHTML=descriptions[name][1];
+    $('system-index').textContent=`0${Object.keys(ATTRACTORS).indexOf(name)+1} / 07`;
 }
-
-function applyCameraPreset(def) {
-
-    settings.maxPointsPerFrame = def.maxPointsPerFrame;
-
-    camera.position.set(
-        def.cameraPosition[0],
-        def.cameraPosition[1],
-        def.cameraPosition[2]
-    );
-
-    camera.lookAt(
-        def.cameraLookAt[0],
-        def.cameraLookAt[1],
-        def.cameraLookAt[2]
-    );
+function setMode(mode){settings.mode=mode;document.querySelectorAll('[data-mode]').forEach(b=>{const active=b.dataset.mode===mode;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active);});updateGui();}
+function setPaused(value){settings.paused=value;$('pause-button').textContent=value?'Resume':'Pause';$('pause-button').setAttribute('aria-pressed',value);}
+function replay(){progress=0;clock=0;setPaused(false);}
+function sample(index,target){
+    const a=Math.max(0,Math.min(result.count-1,index));const i=Math.floor(a),j=Math.min(i+1,result.count-1),f=a-i;
+    for(let c=0;c<3;c++)target[c]=THREE.MathUtils.lerp(result.positions[i*3+c],result.positions[j*3+c],f);
 }
-
-// GUI
-// ------------------------------------------------------------
-
-let gui;
-const guiControllers = [];
-
-function trackController(controller) {
-    guiControllers.push(controller);
-    return controller;
-}
-
-function updateGuiDisplay() {
-    for (let i = 0; i < guiControllers.length; i++) {
-        guiControllers[i].updateDisplay();
+const sampled=[0,0,0];
+const wakePoints=new Float32Array(WAKE_SAMPLES*3),wakeColors=new Float32Array(WAKE_SAMPLES*3);
+function updateHead(){
+    const index=progress*(result.count-1);
+    sample(index,sampled);head.position.set(...sampled);
+    head.scale.setScalar(fittedRadius*settings.headSize);
+    head.material.color.setRGB(settings.headGlow*.6,settings.headGlow*.85,settings.headGlow);
+    const length=Math.min(index,Math.max(35,result.count*.0018));
+    for(let i=0;i<WAKE_SAMPLES;i++){
+        const f=i/(WAKE_SAMPLES-1);
+        sample(index-length*(1-f),sampled);wakePoints.set(sampled,i*3);
+        const strength=f*f*settings.headGlow;
+        wakeColors.set([strength*.32,strength*.75,strength],i*3);
     }
+    // Update the existing interleaved segment buffers; no per-frame geometries.
+    const p=wakeGeometry.attributes.instanceStart.data,c=wakeGeometry.attributes.instanceColorStart.data;
+    for(let i=0;i<WAKE_SAMPLES-1;i++){
+        for(let j=0;j<3;j++){
+            p.array[i*6+j]=wakePoints[i*3+j];p.array[i*6+j+3]=wakePoints[(i+1)*3+j];
+            c.array[i*6+j]=wakeColors[i*3+j];c.array[i*6+j+3]=wakeColors[(i+1)*3+j];
+        }
+    }
+    p.needsUpdate=true;c.needsUpdate=true;
+    head.visible=wake.visible=progress>0;
+    tracers.visible=settings.flowTracers && progress>.002;
+    const count=settings.tracerCount;tracerGeometry.setDrawRange(0,count);
+    const earliest=Math.max(0,index-settings.trail*(result.count-1));
+    const span=Math.max(1,index-earliest);
+    for(let i=0;i<count;i++){
+        const phase=(i/count+clock*.025)%1;
+        sample(earliest+phase*span,sampled);tracerPositions.set(sampled,i*3);
+        const fade=THREE.MathUtils.smoothstep(phase,0,.07)*(1-THREE.MathUtils.smoothstep(phase,.93,1));
+        tracerColors.set([fade,fade,fade],i*3);
+    }
+    tracerGeometry.attributes.position.needsUpdate=true;
+    tracerGeometry.attributes.color.needsUpdate=true;
+    tracers.material.size=fittedRadius*.027;
 }
-
-function setupGUI() {
-    gui = new GUI({
-        title: "Attractor Controls",
-    });
-
-    trackController(
-        gui
-            .add(settings, "attractor", Object.keys(ATTRACTORS))
-            .name("ODE System")
-            .onChange(function (value) {
-                applyPreset(value);
-            })
-    );
-
-    gui.add(settings, "restart").name("Restart Simulation");
-
-    const initialFolder = gui.addFolder("Initial Values");
-
-    trackController(
-        initialFolder
-            .add(settings, "x0", -5, 5, 0.001)
-            .name("x0")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    trackController(
-        initialFolder
-            .add(settings, "y0", -5, 5, 0.001)
-            .name("y0")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    trackController(
-        initialFolder
-            .add(settings, "z0", -5, 5, 0.001)
-            .name("z0")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    const simulationFolder = gui.addFolder("Simulation");
-
-    trackController(
-        simulationFolder
-            .add(settings, "dt", 0.001, 0.05, 0.001)
-            .name("dt")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    trackController(
-        simulationFolder
-            .add(settings, "T", 10, 3000, 1)
-            .name("Total Time")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    trackController(
-        simulationFolder
-            .add(settings, "scale", 0.05, 18, 0.05)
-            .name("Scale")
-            .onFinishChange(rebuildTrajectory)
-    );
-
-    trackController(
-        simulationFolder
-            .add(settings, "pointsPerSecond", 0.1, 20, 0.1)
-            .name("Draw Speed")
-    );
-
-    const visualFolder = gui.addFolder("Visuals");
-
-    trackController(
-        visualFolder
-            .add(settings, "trail", 0.05, 1.0, 0.01)
-            .name("Trail")
-            .onChange(function (value) {
-                uniforms.u_trail.value = value;
-            })
-    );
-
-    trackController(
-        visualFolder
-            .add(settings, "intensity", 0.1, 5.0, 0.1)
-            .name("Trail Length")
-            .onChange(function (value) {
-                uniforms.u_intensity.value = value;
-            })
-    );
-
-    initialFolder.open();
-    simulationFolder.open();
-}
-
-
-
-
-
-// Animation
-// ------------------------------------------------------------
-
-function animate(t) {
-    requestAnimationFrame(animate);
-
-    // reveal the line progressively
-    const elapsed = (t - revealStartTime) * 0.001; // seconds since start
-
-    const pointsThisFrame = Math.min(Math.floor(elapsed * settings.pointsPerSecond), settings.maxPointsPerFrame);
-
-    drawCount = Math.min(drawCount + pointsThisFrame, trajectory_points.length);
-    geom.setDrawRange(0, drawCount);
-
-    // head index is drawCount-1
-    uniforms.u_headT.value = (drawCount - 1) / (trajectory_points.length - 1);
-    uniforms.u_paletteShift.value = performance.now() * 0.001 * 0.05;
-
-    renderer.render(scene, camera);
-}
-
-// Resize
-// ------------------------------------------------------------
-
-window.addEventListener("resize", function () {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const gui=new GUI({container:$('gui-container'),title:'Attractor laboratory'});
+const rendering=gui.addFolder('Appearance');
+rendering.add(settings,'mode',['Trajectory','Particles','Hybrid']).name('Render mode').onChange(setMode);
+rendering.add(settings,'palette',Object.keys(paletteColors)).name('Palette');
+rendering.add(settings,'colorBy',['Time','Speed']).name('Color by');
+rendering.add(settings,'intensity',.1,2,.01).name('Path brightness');
+rendering.add(settings,'trail',.01,1,.01).name('Visible history');
+rendering.add(settings,'pointSize',1,6,.1).name('Particle size · px');
+rendering.add(settings,'cloudOpacity',.03,.7,.01).name('Particle opacity');
+const tracerFolder=gui.addFolder('Head & flow');
+tracerFolder.add(settings,'headGlow',0,6,.1).name('Head glow');
+tracerFolder.add(settings,'headSize',.01,.25,.01).name('Head halo size');
+tracerFolder.add(settings,'wakeWidth',.5,6,.1).name('Wake width · px');
+tracerFolder.add(settings,'flowTracers').name('Flow markers');
+tracerFolder.add(settings,'tracerCount',1,96,1).name('Marker count');
+const post=gui.addFolder('Post processing');
+post.add(settings,'bloom').name('Bloom');
+post.add(settings,'bloomStrength',0,2,.01).name('Bloom strength');
+post.add(settings,'bloomRadius',0,1,.01).name('Bloom radius');
+post.add(settings,'bloomThreshold',0,2,.01).name('Bloom threshold');
+post.add(settings,'exposure',.3,2,.01).name('Exposure');
+post.add(settings,'vignette',0,.7,.01).name('Vignette');
+const playback=gui.addFolder('Playback & camera');
+playback.add(settings,'speed',.1,8,.1).name('Reveal speed');
+playback.add(settings,'loop').name('Loop reveal');
+playback.add(settings,'autoRotate').name('Auto orbit');
+playback.add(settings,'rotationSpeed',.05,1,.05).name('Orbit speed');
+playback.add(settings,'axes').name('World axes');
+playback.add(settings,'quality',['Performance','High','Ultra']).name('Quality').onChange(resize);
+playback.add({fitCamera},'fitCamera').name('Fit to trajectory');
+const simulation=gui.addFolder('Integration');
+for(const [key,label,min,max,step] of [['x0','Initial x',-50,50,.001],['y0','Initial y',-50,50,.001],['z0','Initial z',-50,50,.001],['dt','Time step',.001,.05,.001],['T','Duration',10,3000,1],['scale','World scale',.05,18,.05]])simulation.add(settings,key,min,max,step).name(label);
+simulation.add({apply:()=>rebuild()},'apply').name('Apply & rebuild');
+simulation.add({reset:()=>{Object.assign(settings,presetValues(settings.attractor));rebuild();}},'reset').name('Restore system defaults');
+tracerFolder.close();post.close();playback.close();simulation.close();
+function updateGui(){gui.controllersRecursive().forEach(c=>c.updateDisplay());}
+$('system').onchange=e=>{settings.attractor=e.target.value;Object.assign(settings,presetValues(settings.attractor));rebuild();};
+$('pause-button').onclick=()=>setPaused(!settings.paused);
+$('restart-button').onclick=replay;
+$('settings-button').onclick=()=>{const open=$('gui-container').hidden;$('gui-container').hidden=!open;$('settings-button').setAttribute('aria-expanded',open);};
+$('timeline').oninput=e=>{progress=Number(e.target.value);setPaused(true);};
+$('reveal-button').onclick=()=>{progress=1;setPaused(true);};
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('capture-button').onclick=()=>{capturePending=true;};
+async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{toast('Fullscreen is unavailable in this browser.');}}
+$('fullscreen-button').onclick=fullscreen;
+function toggleUI(){const hidden=document.body.classList.toggle('ui-hidden');$('restore-ui').hidden=!hidden;}
+$('restore-ui').onclick=toggleUI;
+addEventListener('keydown',e=>{
+    if(e.target.matches('input,select,textarea')||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.target.matches('button')&&e.code==='Space')return;
+    if(e.code==='Space'){e.preventDefault();setPaused(!settings.paused);}
+    if(e.key.toLowerCase()==='h')toggleUI();
+    if(e.key.toLowerCase()==='r')replay();
+    if(e.key.toLowerCase()==='p')capturePending=true;
+    if(e.key.toLowerCase()==='f')fullscreen();
 });
-
-// Init
-// ------------------------------------------------------------
-
-setupGUI();
-applyCameraPreset(ATTRACTORS[settings.attractor]);
-rebuildTrajectory();
-requestAnimationFrame(animate);
+function resize(){
+    const ratio=Math.min(devicePixelRatio,{Performance:1,High:1.5,Ultra:2}[settings.quality]);
+    renderer.setPixelRatio(ratio);renderer.setSize(innerWidth,innerHeight);
+    composer.setPixelRatio(ratio);composer.setSize(innerWidth,innerHeight);
+    camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+    uniforms.uPixelRatio.value=ratio;
+    wakeMaterial.resolution.set(innerWidth,innerHeight);
+    fxaa.material.uniforms.resolution.value.set(1/(innerWidth*ratio),1/(innerHeight*ratio));
+    $('quality-value').textContent=settings.quality.toUpperCase();
+    $('resolution-value').textContent=`${renderer.domElement.width} × ${renderer.domElement.height}`;
+}
+addEventListener('resize',resize);
+document.addEventListener('visibilitychange',()=>{lastTime=null;});
+renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();setPaused(true);toast('Graphics context lost. Reload this page to restore rendering.');});
+function animate(now){
+    requestAnimationFrame(animate);
+    const delta=lastTime===null?0:Math.min((now-lastTime)/1000,.1);lastTime=now;
+    if(result){
+        if(!settings.paused&&!busy){
+            clock+=delta;
+            // Preserve each preset's reference pace at 60 Hz, independent of FPS.
+            const rate=ATTRACTORS[activeSettings.attractor].maxPointsPerFrame*60*settings.speed;
+            progress+=delta*rate/(result.count-1);
+            if(progress>=1){if(settings.loop)progress%=1;else{progress=1;setPaused(true);}}
+        }
+        uniforms.uHead.value=progress;uniforms.uTrail.value=settings.trail;
+        uniforms.uIntensity.value=settings.intensity;uniforms.uClock.value=clock;
+        uniforms.uColorMode.value=settings.colorBy==='Speed'?1:0;
+        uniforms.uPointSize.value=settings.pointSize;
+        const palette=paletteColors[settings.palette];
+        uniforms.uColorA.value.set(palette[0]);uniforms.uColorB.value.set(palette[1]);uniforms.uColorC.value.set(palette[2]);
+        pointUniforms.uOpacity.value=settings.cloudOpacity;
+        const end=Math.min(result.count,Math.floor(progress*(result.count-1))+1);
+        const start=Math.max(0,Math.floor((progress-settings.trail)*(result.count-1)));
+        geometry.setDrawRange(start,Math.max(0,end-start));
+        line.visible=settings.mode!=='Particles';cloud.visible=settings.mode!=='Trajectory';
+        wakeMaterial.linewidth=settings.wakeWidth;
+        updateHead();
+        $('timeline').value=progress;$('progress-value').textContent=`${(progress*100).toFixed(1)}%`;
+        $('time-value').textContent=`t = ${(progress*(result.count-1)*activeSettings.dt).toFixed(2)}`;
+        $('sample-value').textContent=`${end.toLocaleString()} / ${result.count.toLocaleString()} samples`;
+    }
+    controls.autoRotate=settings.autoRotate&&!settings.paused;
+    controls.autoRotateSpeed=settings.rotationSpeed;controls.update(delta);
+    axes.visible=settings.axes;
+    bloom.enabled=settings.bloom;bloom.strength=settings.bloomStrength;bloom.radius=settings.bloomRadius;bloom.threshold=settings.bloomThreshold;
+    renderer.toneMappingExposure=settings.exposure;finish.uniforms.uVignette.value=settings.vignette;
+    composer.render(delta);
+    if(capturePending){
+        capturePending=false;
+        renderer.domElement.toBlob(blob=>{if(!blob){toast('Capture failed.');return;}const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`Nitrous-${activeSettings?.attractor||settings.attractor}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Image saved.');},'image/png');
+    }
+    fpsTime+=delta;fpsFrames++;
+    if(fpsTime>=.5){$('fps-value').textContent=Math.round(fpsFrames/fpsTime);fpsFrames=0;fpsTime=0;}
+}
+resize();setMode(settings.mode);setPaused(settings.paused);updateSystemText();rebuild();requestAnimationFrame(animate);
