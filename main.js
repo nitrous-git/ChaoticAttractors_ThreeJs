@@ -17,7 +17,7 @@ const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
     attractor:'Aizawa', ...presetValues('Aizawa'), mode:'Hybrid', palette:'Glacier', colorBy:'Time',
-    speed:1, trail:1, intensity:0.7, pointSize:2.1, cloudOpacity:0.24,
+    speed:1, trail:1, intensity:0.7, pointSize:4.0, cloudOpacity:0.5,
     headSize:0.11, wakeWidth:2.2, headGlow:2.5, bloom:true, bloomStrength:0.65,
     bloomRadius:0.45, bloomThreshold:0.85, exposure:1, vignette:0.3,
     quality:'High', autoRotate:false, rotationSpeed:0.3, loop:false, paused:reducedMotion,
