@@ -12,12 +12,16 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { ATTRACTORS } from './src/attractors.js';
 import { vertex, fragment, finishShader } from './src/shaders.js';
+import { ParticleFlow } from './src/ParticleFlow.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
-    attractor:'Aizawa', ...presetValues('Aizawa'), mode:'Hybrid', palette:'Glacier', colorBy:'Time',
-    speed:1, trail:1, intensity:0.7, pointSize:4.0, cloudOpacity:0.5,
+    attractor:'Aizawa', ...presetValues('Aizawa'), mode:'Particles', palette:'Glacier', colorBy:'Time',
+    speed:1, trail:1, intensity:0.7, pointSize:3.2, cloudOpacity:0.5,
+    particleCount:36000, particleTrails:1, particleBrightness:2.6,
+    flowSpeed:1, speedVariation:0.7, flowSpread:0.035, turbulence:1.2,
+    noiseScale:3.2, noiseSpeed:0.7, swirl:1.1, particlesFollowReveal:false,
     headSize:0.11, wakeWidth:2.2, headGlow:2.5, bloom:true, bloomStrength:0.65,
     bloomRadius:0.45, bloomThreshold:0.85, exposure:1, vignette:0.3,
     quality:'High', autoRotate:false, rotationSpeed:0.3, loop:false, paused:reducedMotion,
@@ -66,13 +70,10 @@ const uniforms = {
 };
 const baseMaterial = new THREE.ShaderMaterial({uniforms,vertexShader:vertex,fragmentShader:fragment,
     transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
-const pointUniforms = {...uniforms,uOpacity:{value:settings.cloudOpacity}};
-const cloudMaterial = new THREE.ShaderMaterial({uniforms:pointUniforms,vertexShader:vertex,fragmentShader:fragment,
-    defines:{CLOUD:1},transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
 let geometry = new THREE.BufferGeometry();
 const line = new THREE.Line(geometry,baseMaterial);
-const cloud = new THREE.Points(geometry,cloudMaterial);
-scene.add(line,cloud);
+const particleFlow = new ParticleFlow(renderer,uniforms,settings);
+scene.add(line,particleFlow.points);
 
 // A short screen-space ribbon, independent of platform GL line-width limits.
 const WAKE_SAMPLES=180;
@@ -119,13 +120,16 @@ function rebuild(fit=true) {
         if(data.id!==requestId)return;
         busy=false;document.body.classList.remove('busy');
         if(data.error) { handleBuildError(data.error);return; }
-        activeSettings=snapshot;result=data.result;
+        const nextResult=data.result;
         const next=new THREE.BufferGeometry();
-        next.setAttribute('position',new THREE.BufferAttribute(result.positions,3));
-        next.setAttribute('a_t',new THREE.BufferAttribute(result.times,1));
-        next.setAttribute('a_speed',new THREE.BufferAttribute(result.speeds,1));
+        next.setAttribute('position',new THREE.BufferAttribute(nextResult.positions,3));
+        next.setAttribute('a_t',new THREE.BufferAttribute(nextResult.times,1));
+        next.setAttribute('a_speed',new THREE.BufferAttribute(nextResult.speeds,1));
         next.computeBoundingSphere();next.computeBoundingBox();
-        line.geometry=cloud.geometry=next;geometry.dispose();geometry=next;
+        try { particleFlow.setTrajectory(nextResult,next.boundingSphere); }
+        catch(error) {next.dispose();handleBuildError(error.message);return;}
+        activeSettings=snapshot;result=nextResult;
+        line.geometry=next;geometry.dispose();geometry=next;
         progress=.16;clock=0;
         if(fit)fitCamera();
         updateSystemText();updateGui();
@@ -160,7 +164,7 @@ function updateSystemText(){
 }
 function setMode(mode){settings.mode=mode;document.querySelectorAll('[data-mode]').forEach(b=>{const active=b.dataset.mode===mode;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active);});updateGui();}
 function setPaused(value){settings.paused=value;$('pause-button').textContent=value?'Resume':'Pause';$('pause-button').setAttribute('aria-pressed',value);}
-function replay(){progress=0;clock=0;setPaused(false);}
+function replay(){progress=0;clock=0;particleFlow.reset();setPaused(false);}
 function sample(index,target){
     const a=Math.max(0,Math.min(result.count-1,index));const i=Math.floor(a),j=Math.min(i+1,result.count-1),f=a-i;
     for(let c=0;c<3;c++)target[c]=THREE.MathUtils.lerp(result.positions[i*3+c],result.positions[j*3+c],f);
@@ -188,8 +192,8 @@ function updateHead(){
         }
     }
     p.needsUpdate=true;c.needsUpdate=true;
-    head.visible=wake.visible=progress>0;
-    tracers.visible=settings.flowTracers && progress>.002;
+    head.visible=wake.visible=settings.mode!=='Particles' && progress>0;
+    tracers.visible=settings.mode!=='Particles' && settings.flowTracers && progress>.002;
     const count=settings.tracerCount;tracerGeometry.setDrawRange(0,count);
     const earliest=Math.max(0,index-settings.trail*(result.count-1));
     const span=Math.max(1,index-earliest);
@@ -210,8 +214,22 @@ rendering.add(settings,'palette',Object.keys(paletteColors)).name('Palette');
 rendering.add(settings,'colorBy',['Time','Speed']).name('Color by');
 rendering.add(settings,'intensity',.1,2,.01).name('Path brightness');
 rendering.add(settings,'trail',.01,1,.01).name('Visible history');
-rendering.add(settings,'pointSize',1,6,.1).name('Particle size · px');
-rendering.add(settings,'cloudOpacity',.03,.7,.01).name('Particle opacity');
+const flowFolder=gui.addFolder('Particle flow');
+flowFolder.add(settings,'particleCount',{'12,000':12000,'24,000':24000,'36,000':36000,'60,000':60000,'100,000':100000})
+    .name('Particle count').onChange(()=>particleFlow.setParticleCount(settings.particleCount,settings.particleTrails));
+flowFolder.add(settings,'flowSpeed',0,4,.01).name('Flow speed');
+flowFolder.add(settings,'speedVariation',0,1,.01).name('Speed variation');
+flowFolder.add(settings,'flowSpread',0,.15,.001).name('Stream spread');
+flowFolder.add(settings,'turbulence',0,3,.01).name('Turbulence');
+flowFolder.add(settings,'noiseScale',.5,8,.1).name('Noise frequency');
+flowFolder.add(settings,'noiseSpeed',0,2,.01).name('Noise evolution');
+flowFolder.add(settings,'swirl',0,4,.01).name('Swirl speed');
+flowFolder.add(settings,'pointSize',1,8,.1).name('Particle size · px');
+flowFolder.add(settings,'cloudOpacity',.05,1,.01).name('Particle opacity');
+flowFolder.add(settings,'particleBrightness',.3,6,.1).name('Particle glow');
+flowFolder.add(settings,'particleTrails',{'Off':0,'Short':1,'Medium':2,'Long':3})
+    .name('Trail echoes').onChange(()=>particleFlow.setParticleCount(settings.particleCount,settings.particleTrails));
+flowFolder.add(settings,'particlesFollowReveal').name('Follow path reveal');
 const tracerFolder=gui.addFolder('Head & flow');
 tracerFolder.add(settings,'headGlow',0,6,.1).name('Head glow');
 tracerFolder.add(settings,'headSize',.01,.25,.01).name('Head halo size');
@@ -244,7 +262,7 @@ $('pause-button').onclick=()=>setPaused(!settings.paused);
 $('restart-button').onclick=replay;
 $('settings-button').onclick=()=>{const open=$('gui-container').hidden;$('gui-container').hidden=!open;$('settings-button').setAttribute('aria-expanded',open);};
 $('timeline').oninput=e=>{progress=Number(e.target.value);setPaused(true);};
-$('reveal-button').onclick=()=>{progress=1;setPaused(true);};
+$('reveal-button').onclick=()=>{progress=1;if(settings.mode==='Trajectory')setPaused(true);};
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 $('capture-button').onclick=()=>{capturePending=true;};
 async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{toast('Fullscreen is unavailable in this browser.');}}
@@ -283,7 +301,7 @@ function animate(now){
             // Preserve each preset's reference pace at 60 Hz, independent of FPS.
             const rate=ATTRACTORS[activeSettings.attractor].maxPointsPerFrame*60*settings.speed;
             progress+=delta*rate/(result.count-1);
-            if(progress>=1){if(settings.loop)progress%=1;else{progress=1;setPaused(true);}}
+            if(progress>=1){if(settings.loop)progress%=1;else{progress=1;if(settings.mode==='Trajectory')setPaused(true);}}
         }
         uniforms.uHead.value=progress;uniforms.uTrail.value=settings.trail;
         uniforms.uIntensity.value=settings.intensity;uniforms.uClock.value=clock;
@@ -291,16 +309,18 @@ function animate(now){
         uniforms.uPointSize.value=settings.pointSize;
         const palette=paletteColors[settings.palette];
         uniforms.uColorA.value.set(palette[0]);uniforms.uColorB.value.set(palette[1]);uniforms.uColorC.value.set(palette[2]);
-        pointUniforms.uOpacity.value=settings.cloudOpacity;
+        particleFlow.update(delta,settings,!settings.paused&&!busy);
         const end=Math.min(result.count,Math.floor(progress*(result.count-1))+1);
         const start=Math.max(0,Math.floor((progress-settings.trail)*(result.count-1)));
         geometry.setDrawRange(start,Math.max(0,end-start));
-        line.visible=settings.mode!=='Particles';cloud.visible=settings.mode!=='Trajectory';
+        line.visible=settings.mode!=='Particles';
         wakeMaterial.linewidth=settings.wakeWidth;
         updateHead();
         $('timeline').value=progress;$('progress-value').textContent=`${(progress*100).toFixed(1)}%`;
         $('time-value').textContent=`t = ${(progress*(result.count-1)*activeSettings.dt).toFixed(2)}`;
-        $('sample-value').textContent=`${end.toLocaleString()} / ${result.count.toLocaleString()} samples`;
+        $('sample-value').textContent=settings.mode==='Trajectory'
+            ? `${end.toLocaleString()} / ${result.count.toLocaleString()} samples`
+            : `${particleFlow.count.toLocaleString()} flowing particles · ${result.count.toLocaleString()} path samples`;
     }
     controls.autoRotate=settings.autoRotate&&!settings.paused;
     controls.autoRotateSpeed=settings.rotationSpeed;controls.update(delta);
@@ -316,3 +336,4 @@ function animate(now){
     if(fpsTime>=.5){$('fps-value').textContent=Math.round(fpsFrames/fpsTime);fpsFrames=0;fpsTime=0;}
 }
 resize();setMode(settings.mode);setPaused(settings.paused);updateSystemText();rebuild();requestAnimationFrame(animate);
+
