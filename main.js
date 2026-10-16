@@ -19,13 +19,13 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
     attractor:'Aizawa', ...presetValues('Aizawa'), mode:'Particles', palette:'Glacier', colorBy:'Time',
     speed:1, trail:1, intensity:0.7, pointSize:3.2, cloudOpacity:0.5,
-    particleCount:36000, particleTrails:1, particleBrightness:2.6,
+    particleCount:36000, particleTrails:1, particleBrightness:1.1,
     flowSpeed:1, speedVariation:0.7, flowSpread:0.035, turbulence:1.2,
     noiseScale:3.2, noiseSpeed:0.7, swirl:1.1, particlesFollowReveal:false,
     headSize:0.11, wakeWidth:2.2, headGlow:2.5, bloom:true, bloomStrength:0.65,
     bloomRadius:0.45, bloomThreshold:0.85, exposure:1, vignette:0.3,
     quality:'High', autoRotate:false, rotationSpeed:0.3, loop:false, paused:reducedMotion,
-    flowTracers:true, tracerCount:24, axes:false
+    flowTracers:true, tracerCount:1, axes:false
 };
 function presetValues(name) {
     const d = ATTRACTORS[name];

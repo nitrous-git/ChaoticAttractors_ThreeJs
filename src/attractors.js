@@ -98,7 +98,9 @@ export const ATTRACTORS = {
         scale: 1.6,
         maxPointsPerFrame : 35,
 
-        cameraPosition: [0, 15, 45],
+        // cameraPosition: [0, 15, 45],
+        cameraPosition: [0, 15, 50],
+        // cameraLookAt: [0, 8, 0],
         cameraLookAt: [0, 8, 0],
 
         ode: function rossler(t, state) {
