@@ -1,23 +1,25 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chaotic Attractors in Three.js</title>
-    <link rel="stylesheet" href="./style.css" />
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#050608"><title>Strange Attractors · Nitrous</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23050608'/%3E%3Cpath d='M32 32C0-10 0 74 32 32S64-10 32 32S0 74 32 32' fill='none' stroke='%238ae0dd' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/","lil-gui":"https://cdn.jsdelivr.net/npm/lil-gui@0.21.0/dist/lil-gui.esm.js"}}</script>
 </head>
-
 <body>
-    <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
-        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21/+esm"
-      }
-    }
-    </script>
-    <script type="module" src="./main.js"></script>
-</body>
-
-</html>
+<canvas id="webgl-canvas" aria-label="Interactive three dimensional chaotic attractor"></canvas>
+<div id="startup-overlay" role="status"><div class="startup-content"><div class="loader-orbit"></div><p class="eyebrow">NITROUS / WEBGL EXPERIMENTS</p><h1>Finding order in chaos.</h1><p id="startup-message">Integrating the trajectory</p></div></div>
+<div id="interface">
+<header class="masthead"><div class="identity"><p class="eyebrow"><span class="status-dot"></span> NITROUS / FIELD STUDY 02</p><h1>Strange attractors</h1><p class="subtitle">Deterministic equations. Unpredictable paths.</p></div>
+<nav class="toolbar" aria-label="Simulation tools"><button id="pause-button" aria-pressed="false" title="Pause (Space)">Pause</button><button id="restart-button" title="Replay trajectory (R)">Replay</button><button id="capture-button" title="Save PNG (P)">Capture</button><button id="fullscreen-button" title="Fullscreen (F)">Fullscreen</button><button id="settings-button" aria-expanded="false">Controls <span>+</span></button></nav></header>
+<aside class="system-picker"><label class="eyebrow" for="system">DYNAMICAL SYSTEM</label><select id="system"><option>Aizawa</option><option>Lorenz</option><option>Rossler</option><option>Thomas</option><option>Halvorsen</option><option>Dadras</option><option>Misc_01</option></select><p id="system-description">A toroidal flow with a folded core.</p><div class="system-index" id="system-index">01 / 07</div></aside>
+<div id="gui-container" hidden></div>
+<footer class="footer"><div class="model-info"><p class="eyebrow">PHASE SPACE / <span id="model-name">AIZAWA</span></p><div id="equations" class="model-equation"></div><p class="model-note">Fourth-order Runge–Kutta · original system coordinates x, y, z</p></div>
+<div class="playback"><div class="view-selector" role="group" aria-label="Rendering mode"><button data-mode="Trajectory" class="active" aria-pressed="true">Trajectory</button><button data-mode="Particles" aria-pressed="false">Particles</button><button data-mode="Hybrid" aria-pressed="false">Hybrid</button></div><div class="timeline-label"><label for="timeline">TRAJECTORY REVEAL</label><span id="progress-value">0.0%</span></div><input id="timeline" type="range" min="0" max="1" step="0.0001" value="0" aria-label="Trajectory reveal"><div class="timeline-label"><span id="time-value">t = 0.00</span><button id="reveal-button">Show full trajectory ↗</button></div></div>
+<div class="telemetry"><p><span id="fps-value">—</span> <span class="unit">FPS</span><span class="divider">/</span><span id="quality-value">HIGH</span></p><p id="resolution-value">Initializing</p><p id="sample-value"></p></div></footer>
+<div class="interaction-hint">DRAG TO ORBIT <span>·</span> SCROLL TO ZOOM <span>·</span> SPACE TO PAUSE <span>·</span> H TO HIDE UI</div>
+</div><button id="restore-ui" hidden>Show interface · H</button><div id="toast" role="status"></div>
+<noscript>This simulation requires JavaScript and WebGL 2.</noscript>
+<script type="module">import('./main.js').catch(error=>{console.error(error);document.querySelector('.startup-content h1').textContent='Unable to start';document.getElementById('startup-message').textContent=location.protocol==='file:'?'Open with WebStorm’s Open in Browser command or run npm start.':'Check WebGL 2 support and the connection to cdn.jsdelivr.net. '+error.message;});</script>
+</body></html>
